@@ -12,7 +12,6 @@ on:
         description: 'PR number to review'
         required: true
         type: 'number'
-
 jobs:
   pr_agent_job:
     runs-on: ubuntu-latest
