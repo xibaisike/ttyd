@@ -23,11 +23,11 @@ jobs:
         OPENAI_API_BASE: ${{ secrets.OPENAI_BASE }}
         OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        config.model: "qwen3.6-plus"
+        config.model: "dashscope/qwen3.6-plus"
         github_action_config.auto_review: "true"
         github_action_config.auto_describe: "true"
         github_action_config.auto_improve: "true"
-        config.fallback_models: '["qwen-max"]'
+        config.fallback_models: '["dashscope/qwen-max"]'
         config.custom_model_max_tokens: 32000
         github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "review_requested"]'
 

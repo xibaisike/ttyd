@@ -1,0 +1,46 @@
+{
+  "private": true,
+  "name": "ttyd-app",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "ttyd web terminal UI (React 18 + Vite)",
+  "packageManager": "yarn@3.6.3",
+  "scripts": {
+    "dev": "vite --port 9000",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@types/node": "^25.9.1",
+    "@xterm/addon-canvas": "^0.7.0",
+    "@xterm/addon-clipboard": "^0.1.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-image": "^0.8.0",
+    "@xterm/addon-unicode11": "^0.8.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/addon-webgl": "^0.18.0",
+    "@xterm/xterm": "^5.5.0",
+    "file-saver": "^2.0.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "trzsz": "^1.1.5",
+    "whatwg-fetch": "^3.6.20",
+    "zmodem.js": "^0.1.10"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@types/file-saver": "^2.0.7",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react-swc": "^3.7.2",
+    "sass": "^1.71.1",
+    "typescript": "~5.6.3",
+    "vite": "^6.0.3"
+  }
+}

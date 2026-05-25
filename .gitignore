@@ -49,6 +49,15 @@ build
 
 # VSCode files
 .vscode/
+.cache
 
 # Project files
 !init.d
+
+# e2e test
+playwright-report
+test-results
+
+# ai agent
+.claude
+.omc
