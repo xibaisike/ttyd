@@ -66,6 +66,19 @@ bool endswith(const char *str, const char *suffix) {
   return str_len > suffix_len && !strcmp(str + (str_len - suffix_len), suffix);
 }
 
+char *strip_query(char *dst, const char *src, size_t n) {
+  if (dst == NULL || n == 0) return dst;
+  if (src == NULL) {
+    dst[0] = '\0';
+    return dst;
+  }
+  strncpy(dst, src, n - 1);
+  dst[n - 1] = '\0';
+  char *qmark = strchr(dst, '?');
+  if (qmark != NULL) *qmark = '\0';
+  return dst;
+}
+
 int get_sig_name(int sig, char *buf, size_t len) {
   int n = snprintf(buf, len, "SIG%s", sig < NSIG ? sys_signame[sig] : "unknown");
   uppercase(buf);

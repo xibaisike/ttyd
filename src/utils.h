@@ -1,6 +1,9 @@
 #ifndef TTYD_UTIL_H
 #define TTYD_UTIL_H
 
+#include <stdbool.h>
+#include <stddef.h>
+
 #define container_of(ptr, type, member)                \
   ({                                                   \
     const typeof(((type *)0)->member) *__mptr = (ptr); \
@@ -21,6 +24,10 @@ char *lowercase(char *s);
 
 // Check whether str ends with suffix
 bool endswith(const char *str, const char *suffix);
+
+// Copy src into dst (capacity n) and truncate at '?' to strip the query string.
+// dst is always null-terminated. Returns dst.
+char *strip_query(char *dst, const char *src, size_t n);
 
 // Get human readable signal string
 int get_sig_name(int sig, char *buf, size_t len);

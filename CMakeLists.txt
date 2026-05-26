@@ -33,7 +33,7 @@ else()
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS _GNU_SOURCE)
 endif()
 
-set(SOURCE_FILES src/utils.c src/pty.c src/protocol.c src/http.c src/server.c)
+set(SOURCE_FILES src/utils.c src/pty.c src/protocol.c src/http.c src/server.c src/session.c src/api.c src/logger.c src/profile.c src/osc133.c)
 
 include(FindPackageHandleStandardArgs)
 
@@ -119,3 +119,10 @@ include(GNUInstallDirs)
 
 install(TARGETS ${PROJECT_NAME} DESTINATION "${CMAKE_INSTALL_BINDIR}" COMPONENT prog)
 install(FILES man/ttyd.1 DESTINATION "${CMAKE_INSTALL_MANDIR}/man1" COMPONENT doc)
+
+# Unit tests
+option(BUILD_TESTS "Build unit tests" OFF)
+if(BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
