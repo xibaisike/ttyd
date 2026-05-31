@@ -11,6 +11,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "logger.h"
 #include "utils.h"
 #include "compat.h"
 
@@ -80,12 +81,14 @@ static const struct option options[] = {{"port", required_argument, NULL, 'p'},
                                         {"max-clients", required_argument, NULL, 'm'},
                                         {"once", no_argument, NULL, 'o'},
                                         {"exit-no-conn", no_argument, NULL, 'q'},
+                                        {"scrollback", required_argument, NULL, 'R'},
+                                        {"static-dir", required_argument, NULL, 'D'},
                                         {"browser", no_argument, NULL, 'B'},
                                         {"debug", required_argument, NULL, 'd'},
                                         {"version", no_argument, NULL, 'v'},
                                         {"help", no_argument, NULL, 'h'},
                                         {NULL, 0, 0, 0}};
-static const char *opt_string = "p:i:U:c:H:u:g:s:w:I:b:P:f:6aSC:K:A:Wt:T:Om:oqBd:vh";
+static const char *opt_string = "p:i:U:c:H:u:g:s:w:I:b:P:f:6aSC:K:A:Wt:T:Om:oqR:D:Bd:vh";
 
 static void print_help() {
   // clang-format off
@@ -112,6 +115,8 @@ static void print_help() {
           "    -m, --max-clients       Maximum clients to support (default: 0, no limit)\n"
           "    -o, --once              Accept only one client and exit on disconnection\n"
           "    -q, --exit-no-conn      Exit on all clients disconnection\n"
+          "    -R, --scrollback        Scrollback buffer size per session in bytes (default: 1048576)\n"
+          "    -D, --static-dir        Static files directory to serve over HTTP\n"
           "    -B, --browser           Open terminal with the default system browser\n"
           "    -I, --index             Custom index.html path\n"
           "    -b, --base-path         Expected base path for requests coming from a reverse proxy (eg: /mounted/here, max length: 128)\n"
@@ -158,6 +163,8 @@ static void print_config() {
   if (server->exit_no_conn) lwsl_notice("  exit_no_conn: true\n");
   if (server->index != NULL) lwsl_notice("  custom index.html: %s\n", server->index);
   if (server->cwd != NULL) lwsl_notice("  working directory: %s\n", server->cwd);
+  if (server->static_dir != NULL) lwsl_notice("  static directory: %s\n", server->static_dir);
+  lwsl_notice("  scrollback size: %zu\n", server->scrollback_size);
   if (!server->writable) lwsl_warn("The --writable option is not set, will start in readonly mode\n");
 }
 
@@ -170,6 +177,7 @@ static struct server *server_new(int argc, char **argv, int start) {
   memset(ts, 0, sizeof(struct server));
   ts->client_count = 0;
   ts->sig_code = SIGHUP;
+  ts->scrollback_size = 1048576;
   snprintf(ts->terminal_type, sizeof(ts->terminal_type), "%s", "xterm-256color");
   get_sig_name(ts->sig_code, ts->sig_name, sizeof(ts->sig_name));
   if (start == argc) return ts;
@@ -209,6 +217,7 @@ static void server_free(struct server *ts) {
   if (ts->credential != NULL) free(ts->credential);
   if (ts->auth_header != NULL) free(ts->auth_header);
   if (ts->index != NULL) free(ts->index);
+  if (ts->static_dir != NULL) free(ts->static_dir);
   if (ts->cwd != NULL) free(ts->cwd);
   free(ts->command);
   free(ts->prefs_json);
@@ -313,6 +322,79 @@ int main(int argc, char **argv) {
   }
 #endif
 
+  char **merged_argv = NULL;
+  int merged_argc = 0;
+  struct json_object *cfg_obj = NULL;
+
+  FILE *cfg_fp = fopen("config.json", "r");
+  if (cfg_fp != NULL) {
+    fseek(cfg_fp, 0, SEEK_END);
+    long cfg_size = ftell(cfg_fp);
+    fseek(cfg_fp, 0, SEEK_SET);
+    char *cfg_buf = xmalloc(cfg_size + 1);
+    fread(cfg_buf, 1, cfg_size, cfg_fp);
+    cfg_buf[cfg_size] = '\0';
+    fclose(cfg_fp);
+
+    cfg_obj = json_tokener_parse(cfg_buf);
+    free(cfg_buf);
+
+    if (cfg_obj != NULL) {
+      struct json_object *args_obj = NULL;
+      if (json_object_object_get_ex(cfg_obj, "args", &args_obj) &&
+          json_object_is_type(args_obj, json_type_array)) {
+        int cfg_argc = json_object_array_length(args_obj);
+        int cli_start = calc_command_start(argc, argv);
+        int cli_opts_count = cli_start - 1;
+        int cli_cmd_count = argc - cli_start;
+
+        // build temp argv for config to find its command start
+        char **cfg_argv = xmalloc(sizeof(char *) * (cfg_argc + 2));
+        cfg_argv[0] = argv[0];
+        for (int i = 0; i < cfg_argc; i++)
+          cfg_argv[1 + i] = (char *)json_object_get_string(json_object_array_get_idx(args_obj, i));
+        cfg_argv[cfg_argc + 1] = NULL;
+        int cfg_cmd_start = calc_command_start(cfg_argc + 1, cfg_argv);
+        int cfg_opts_count = cfg_cmd_start - 1;
+        int cfg_cmd_count = cfg_argc + 1 - cfg_cmd_start;
+
+        // merged: argv[0] + config_opts + cli_opts + (cli_cmd ?: config_cmd)
+        char **cmd_src;
+        int cmd_count;
+        if (cli_cmd_count > 0) {
+          cmd_src = &argv[cli_start];
+          cmd_count = cli_cmd_count;
+        } else {
+          cmd_src = &cfg_argv[cfg_cmd_start];
+          cmd_count = cfg_cmd_count;
+        }
+
+        merged_argc = 1 + cfg_opts_count + cli_opts_count + cmd_count;
+        merged_argv = xmalloc(sizeof(char *) * (merged_argc + 1));
+        int pos = 0;
+        merged_argv[pos++] = argv[0];
+        for (int i = 0; i < cfg_opts_count; i++)
+          merged_argv[pos++] = cfg_argv[1 + i];
+        for (int i = 0; i < cli_opts_count; i++)
+          merged_argv[pos++] = argv[1 + i];
+        for (int i = 0; i < cmd_count; i++)
+          merged_argv[pos++] = cmd_src[i];
+        merged_argv[pos] = NULL;
+
+        free(cfg_argv);
+        argc = merged_argc;
+        argv = merged_argv;
+      }
+    } else {
+      fprintf(stderr, "ttyd: warning: failed to parse config.json\n");
+    }
+  }
+
+  if (argc == 1) {
+    print_help();
+    return 0;
+  }
+
   int start = calc_command_start(argc, argv);
   server = server_new(argc, argv, start);
 
@@ -375,6 +457,12 @@ int main(int argc, char **argv) {
         break;
       case 'q':
         server->exit_no_conn = true;
+        break;
+      case 'R':
+        server->scrollback_size = (size_t)parse_int("scrollback", optarg);
+        break;
+      case 'D':
+        server->static_dir = strdup(optarg);
         break;
       case 'B':
         browser = true;
@@ -606,6 +694,10 @@ int main(int argc, char **argv) {
   int port = lws_get_vhost_listen_port(vhost);
   lwsl_notice(" Listening on port: %d\n", port);
 
+  logger_init();
+
+  session_manager_init(server->scrollback_size);
+
   if (browser) {
     char url[30];
     snprintf(url, sizeof(url), "%s://localhost:%d", ssl ? "https" : "http", port);
@@ -629,8 +721,13 @@ int main(int argc, char **argv) {
 
   lws_context_destroy(context);
 
+  session_manager_destroy();
+  logger_destroy();
+
   // cleanup
   server_free(server);
+  if (cfg_obj != NULL) json_object_put(cfg_obj);
+  if (merged_argv != NULL) free(merged_argv);
 
   return 0;
 }

@@ -6,6 +6,7 @@ on:
     - ".github/workflows/backend.yml"
     - "CMakeLists.txt"
     - "src/*"
+    - "tests/*"
     - "scripts/*"
   pull_request:
     paths:
@@ -59,13 +60,11 @@ jobs:
       - name: Install packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y autoconf automake build-essential cmake curl file libtool
+          sudo apt-get install -y autoconf automake build-essential cmake curl file libtool libcmocka-dev
       - name: Cross build (${{ matrix.target }})
         env:
           BUILD_TARGET: ${{ matrix.target }}
         run: ./scripts/cross-build.sh
-      - uses: actions/upload-artifact@v7
-        with:
-          name: ttyd.${{ matrix.target }}
-          path: build/ttyd*
+      - name: Run tests
+        run: ./scripts/run-test.sh
 

@@ -1,7 +1,9 @@
 #include <libwebsockets.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <zlib.h>
 
+#include "api.h"
 #include "html.h"
 #include "server.h"
 #include "utils.h"
@@ -100,6 +102,17 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
     case LWS_CALLBACK_HTTP:
       access_log(wsi, (const char *)in);
       snprintf(pss->path, sizeof(pss->path), "%s", (const char *)in);
+      {
+        char args[256];
+        int args_len = lws_hdr_copy(wsi, args, sizeof(args), WSI_TOKEN_HTTP_URI_ARGS);
+        if (args_len > 0) {
+          size_t path_len = strlen(pss->path);
+          if (path_len + 1 + (size_t)args_len < sizeof(pss->path)) {
+            pss->path[path_len] = '?';
+            memcpy(pss->path + path_len + 1, args, (size_t)args_len + 1);
+          }
+        }
+      }
       switch (check_auth(wsi, pss)) {
         case AUTH_OK:
           break;
@@ -110,8 +123,30 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
           return 1;
       }
 
+      // API routing
+      {
+        const char *api_prefix = "/api/";
+        const char *check_path = pss->path;
+        size_t parent_len = strlen(endpoints.parent);
+        if (parent_len > 0 && strncmp(pss->path, endpoints.parent, parent_len) == 0)
+          check_path = pss->path + parent_len;
+        if (strncmp(check_path, api_prefix, 5) == 0) {
+          pss->is_api = true;
+          // for POST, wait for body callbacks
+          char post_uri[128];
+          if (lws_hdr_copy(wsi, post_uri, sizeof(post_uri), WSI_TOKEN_POST_URI) > 0) {
+            return 0;
+          }
+          // GET/DELETE have no body
+          return api_handle_request(wsi, pss);
+        }
+      }
+
       p = buffer + LWS_PRE;
       end = p + sizeof(buffer) - LWS_PRE;
+      // strip query string so static file lookup uses path only
+      char path_only[256];
+      strip_query(path_only, pss->path, sizeof(path_only));
 
       if (strcmp(pss->path, endpoints.token) == 0) {
         const char *credential = server->credential != NULL ? server->credential : "";
@@ -141,7 +176,31 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
         goto try_to_reuse;
       }
 
-      if (strcmp(pss->path, endpoints.index) != 0) {
+      if (strcmp(path_only, endpoints.index) != 0) {
+        if (server->static_dir != NULL) {
+        
+
+          const char *rel_path = path_only;
+          if (endpoints.parent[0] && strstr(path_only, endpoints.parent) == path_only)
+            rel_path = path_only + strlen(endpoints.parent);
+
+          if (strstr(rel_path, "..") != NULL) {
+            lws_return_http_status(wsi, HTTP_STATUS_FORBIDDEN, NULL);
+            goto try_to_reuse;
+          }
+
+          char filepath[1024];
+          snprintf(filepath, sizeof(filepath), "%s%s", server->static_dir, rel_path);
+
+          struct stat st;
+          if (stat(filepath, &st) == 0 && S_ISREG(st.st_mode)) {
+            const char *mime = lws_get_mimetype(filepath, NULL);
+            if (mime == NULL) mime = "application/octet-stream";
+            int n = lws_serve_http_file(wsi, filepath, mime, NULL, 0);
+            if (n < 0 || (n > 0 && lws_http_transaction_completed(wsi))) return 1;
+            break;
+          }
+        }
         lws_return_http_status(wsi, HTTP_STATUS_NOT_FOUND, NULL);
         goto try_to_reuse;
       }
@@ -215,6 +274,22 @@ int callback_http(struct lws *wsi, enum lws_callback_reasons reason, void *user,
 
     case LWS_CALLBACK_HTTP_FILE_COMPLETION:
       goto try_to_reuse;
+    case LWS_CALLBACK_HTTP_BODY:
+      if (pss->is_api) {
+        size_t remaining = sizeof(pss->body) - pss->body_len;
+        size_t to_copy = len < remaining ? len : remaining;
+        memcpy(pss->body + pss->body_len, in, to_copy);
+        pss->body_len += to_copy;
+      }
+      break;
+
+    case LWS_CALLBACK_HTTP_BODY_COMPLETION:
+      if (pss->is_api) {
+        pss->body[pss->body_len] = '\0';
+        return api_handle_request(wsi, pss);
+      }
+      break;
+
 #if (defined(LWS_OPENSSL_SUPPORT) || defined(LWS_WITH_TLS)) && !defined(LWS_WITH_MBEDTLS)
     case LWS_CALLBACK_OPENSSL_PERFORM_CLIENT_CERT_VERIFICATION:
       if (!len || (SSL_get_verify_result((SSL *)in) != X509_V_OK)) {

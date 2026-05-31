@@ -3,6 +3,8 @@
 #include <uv.h>
 
 #include "pty.h"
+#include "profile.h"
+#include "session.h"
 
 // client message
 #define INPUT '0'
@@ -34,6 +36,9 @@ struct pss_http {
   char *buffer;
   char *ptr;
   size_t len;
+  char body[4096];
+  size_t body_len;
+  bool is_api;
 };
 
 struct pss_tty {
@@ -53,11 +58,17 @@ struct pss_tty {
   pty_process *process;
   pty_buf_t *pty_buf;
 
+  char *pid;
+  session_t *session;
+  session_conn_t *session_conn;
+
   int lws_close_status;
+
+  profile_t profile;
 };
 
 typedef struct {
-  struct pss_tty *pss;
+  session_t *session;
   bool ws_closed;
 } pty_ctx_t;
 
@@ -67,6 +78,7 @@ struct server {
   char *credential;        // encoded basic auth credential
   char *auth_header;       // header name used for auth proxy
   char *index;             // custom index.html
+  char *static_dir;        // static files directory
   char *command;           // full command line
   char **argv;             // command with arguments
   int argc;                // command + arguments count
@@ -81,6 +93,8 @@ struct server {
   bool exit_no_conn;       // whether exit on all clients disconnection
   char socket_path[255];   // UNIX domain socket path
   char terminal_type[30];  // terminal type to report
+
+  size_t scrollback_size;   // per-session scrollback buffer size
 
   uv_loop_t *loop;         // the libuv event loop
 };
