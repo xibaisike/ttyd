@@ -15,6 +15,7 @@ JSON_C_VERSION="${JSON_C_VERSION:-0.18}"
 OPENSSL_VERSION="${OPENSSL_VERSION:-3.6.1}"
 LIBUV_VERSION="${LIBUV_VERSION:-1.52.1}"
 LIBWEBSOCKETS_VERSION="${LIBWEBSOCKETS_VERSION:-4.5.7}"
+CMOCKA_VERSION="${CMOCKA_VERSION:-1.1.7}"
 
 build_zlib() {
     echo "=== Building zlib-${ZLIB_VERSION} (${TARGET})..."
@@ -142,16 +143,37 @@ build_libwebsockets() {
     popd
 }
 
+build_cmocka() {
+    echo "=== Building cmocka-${CMOCKA_VERSION} (${TARGET})..."
+    curl -fSsLo- "https://gitlab.com/cmocka/cmocka/-/archive/cmocka-${CMOCKA_VERSION}/cmocka-cmocka-${CMOCKA_VERSION}.tar.gz" | tar xz -C "${BUILD_DIR}"
+    pushd "${BUILD_DIR}/cmocka-cmocka-${CMOCKA_VERSION}"
+        rm -rf build && mkdir -p build && cd build
+        cmake -DCMAKE_TOOLCHAIN_FILE="${BUILD_DIR}/cross-${TARGET}.cmake" \
+            -DCMAKE_BUILD_TYPE=RELEASE \
+            -DCMAKE_INSTALL_PREFIX="${STAGE_DIR}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DUNIT_TESTING=OFF \
+            -DCMAKE_C_FLAGS="-fPIC" \
+            ..
+        make -j"$(nproc)" install
+    popd
+}
+
 build_ttyd() {
     echo "=== Building ttyd (${TARGET})..."
     rm -rf build && mkdir -p build && cd build
-    cmake -DCMAKE_TOOLCHAIN_FILE="${BUILD_DIR}/cross-${TARGET}.cmake" \
-        -DCMAKE_INSTALL_PREFIX="${STAGE_DIR}" \
-        -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
-        -DCMAKE_C_FLAGS="-Os -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -flto" \
-        -DCMAKE_EXE_LINKER_FLAGS="-static -no-pie -Wl,-s -Wl,-Bsymbolic -Wl,--gc-sections" \
-        -DCMAKE_BUILD_TYPE=RELEASE \
-        ..
+    local cmake_args=(
+        -DCMAKE_TOOLCHAIN_FILE="${BUILD_DIR}/cross-${TARGET}.cmake"
+        -DCMAKE_INSTALL_PREFIX="${STAGE_DIR}"
+        -DCMAKE_FIND_LIBRARY_SUFFIXES=".a"
+        -DCMAKE_C_FLAGS="-Os -ffunction-sections -fdata-sections -fno-unwind-tables -fno-asynchronous-unwind-tables -flto"
+        -DCMAKE_EXE_LINKER_FLAGS="-static -no-pie -Wl,-s -Wl,-Bsymbolic -Wl,--gc-sections"
+        -DCMAKE_BUILD_TYPE=RELEASE
+    )
+    if [ "${BUILD_TARGET}" != "win32" ]; then
+        cmake_args+=(-DBUILD_TESTS=ON)
+    fi
+    cmake "${cmake_args[@]}" ..
     make install
 }
 
@@ -187,6 +209,9 @@ build() {
     build_libuv
     build_openssl
     build_libwebsockets
+    if [ "${BUILD_TARGET}" != "win32" ]; then
+        build_cmocka
+    fi
     build_ttyd
 }
 
